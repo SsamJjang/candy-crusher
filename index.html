@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Candy Crusher: Audio Edition</title>
+    <style>
+        :root {
+            --bg-color: #2b1d38;
+            --grid-bg: rgba(0, 0, 0, 0.3);
+            --board-size: 80vmin; 
+            --tile-size: calc(var(--board-size) / 8); 
+            --candy-size: calc(var(--tile-size) * 0.85);
+        }
+
+        body {
+            font-family: 'Fredoka One', 'Segoe UI', Tahoma, sans-serif;
+            background: radial-gradient(circle at center, #4a2f5e 0%, #1a0f24 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+            color: white;
+            user-select: none;
+        }
+
+        h1 {
+            font-size: 5vmin;
+            margin: 0 0 2vh 0;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #fff;
+            text-shadow: 0 0 10px #ff00de, 0 0 20px #ff00de;
+        }
+
+        #score-board {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 1vh 4vw;
+            border-radius: 50px;
+            margin-bottom: 2vh;
+            font-size: 3vmin;
+            font-weight: bold;
+            backdrop-filter: blur(10px);
+            border: 2px solid rgba(255,255,255,0.2);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+            transition: transform 0.1s;
+        }
+
+        .score-pop { transform: scale(1.4); color: #ffd700; }
+
+        .grid {
+            width: var(--board-size);
+            height: var(--board-size);
+            display: flex;
+            flex-wrap: wrap;
+            background-color: var(--grid-bg);
+            padding: 0;
+            border-radius: 15px;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.5), 0 10px 40px rgba(0,0,0,0.5);
+            border: 4px solid rgba(255,255,255,0.1);
+            position: relative;
+        }
+
+        .grid div {
+            height: var(--tile-size);
+            width: var(--tile-size);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            z-index: 2;
+        }
+
+        .candy {
+            width: var(--candy-size);
+            height: var(--candy-size);
+            border-radius: 50%;
+            position: relative;
+            box-shadow: inset 0 -5px 10px rgba(0,0,0,0.4), 3px 3px 5px rgba(0,0,0,0.3);
+            cursor: pointer;
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 10;
+        }
+        .candy:hover { transform: scale(1.1); filter: brightness(1.2); }
+        .candy::after {
+            content: ''; position: absolute; top: 15%; left: 15%; width: 30%; height: 20%;
+            border-radius: 50%; background: linear-gradient(to bottom, rgba(255,255,255,0.9), rgba(255,255,255,0.1));
+            pointer-events: none;
+        }
+
+        .red { background: radial-gradient(circle at 40% 40%, #ff5e5e, #c70000); }
+        .yellow { background: radial-gradient(circle at 40% 40%, #fffa8d, #d4af37); border-radius: 15%; }
+        .orange { background: radial-gradient(circle at 40% 40%, #ffc06e, #d35400); }
+        .purple { background: radial-gradient(circle at 40% 40%, #ea8df7, #8e44ad); border-radius: 25%; }
+        .green { background: radial-gradient(circle at 40% 40%, #8df7a8, #27ae60); border-radius: 10px 30px 10px 30px; }
+        .blue { background: radial-gradient(circle at 40% 40%, #8daaf7, #2980b9); }
+
+        .crush-anim { animation: crush 0.3s forwards; }
+        @keyframes crush { 0% { transform: scale(1); opacity: 1; } 100% { transform: scale(0); opacity: 0; } }
+
+        .drop-anim { animation: dropBounce 0.4s ease-out; }
+        @keyframes dropBounce { 0% { transform: translateY(-50%); opacity: 0; } 60% { transform: translateY(10%); opacity: 1; } 100% { transform: translateY(0); } }
+
+        .particle {
+            position: absolute; pointer-events: none; border-radius: 50%;
+            animation: particle-explode 0.6s ease-out forwards; z-index: 20;
+        }
+        @keyframes particle-explode {
+            0% { transform: translate(0, 0) scale(1); opacity: 1; }
+            100% { transform: translate(var(--tx), var(--ty)) scale(0); opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Candy Crusher</h1>
+    <div id="score-board">Score: <span id="score">0</span></div>
+    <div class="grid"></div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const grid = document.querySelector('.grid');
+            const scoreDisplay = document.getElementById('score');
+            const scoreBoard = document.getElementById('score-board');
+            const width = 8;
+            const squares = [];
+            
+            // --- AUDIO SETUP (FIXED) ---
+            const bgMusic = new Audio('assets/bg.mp3');
+            bgMusic.loop = true;
+            bgMusic.volume = 0.5;
+            // Key fix: preload=auto tells browser to download NOW, not later.
+            bgMusic.preload = 'auto'; 
+            bgMusic.load(); 
+
+            const levelUpSound = new Audio('assets/level_up.mp3');
+            levelUpSound.preload = 'auto';
+
+            // Robust Music Starter
+            function startMusic() {
+                bgMusic.play().then(() => {
+                    // Remove listeners once music starts
+                    document.removeEventListener('click', startMusic);
+                    document.removeEventListener('keydown', startMusic);
+                    document.removeEventListener('touchstart', startMusic);
+                }).catch(e => {
+                    console.log("Audio waiting for user interaction...");
+                });
+            }
+
+            // Listen for ANY interaction to start music
+            document.addEventListener('click', startMusic);
+            document.addEventListener('keydown', startMusic);
+            document.addEventListener('touchstart', startMusic);
+
+            function playCrushSound() {
+                const src = Math.random() < 0.5 ? 'assets/crush1.mp3' : 'assets/crush2.mp3';
+                const sfx = new Audio(src);
+                sfx.volume = 0.6;
+                sfx.play();
+            }
+
+            // --- GAME VARIABLES ---
+            let score = 0;
+            let nextMilestone = 500;
+            let isProcessing = false; 
+
+            const candyColors = ['red', 'yellow', 'orange', 'purple', 'green', 'blue'];
+
+            // --- 1. Create Board ---
+            function createBoard() {
+                for (let i = 0; i < width * width; i++) {
+                    const square = document.createElement('div');
+                    square.setAttribute('id', i);
+                    square.addEventListener('mousedown', mouseDown);
+                    
+                    let randomColor = Math.floor(Math.random() * candyColors.length);
+                    const candy = document.createElement('div');
+                    candy.classList.add('candy', candyColors[randomColor]);
+                    
+                    square.appendChild(candy);
+                    grid.appendChild(square);
+                    squares.push(square);
+                }
+            }
+            createBoard();
+
+            // --- 2. Interaction (Swipe) ---
+            let startSquareId, startX, startY;
+
+            function mouseDown(e) {
+                if(isProcessing || !this.firstChild) return;
+                startSquareId = parseInt(this.id);
+                startX = e.clientX;
+                startY = e.clientY;
+                document.addEventListener('mouseup', mouseUp);
+            }
+
+            function mouseUp(e) {
+                document.removeEventListener('mouseup', mouseUp);
+                const endX = e.clientX;
+                const endY = e.clientY;
+                const diffX = endX - startX;
+                const diffY = endY - startY;
+
+                if (Math.abs(diffX) < 10 && Math.abs(diffY) < 10) return;
+
+                let targetId;
+                if (Math.abs(diffX) > Math.abs(diffY)) {
+                    targetId = diffX > 0 ? startSquareId + 1 : startSquareId - 1;
+                } else {
+                    targetId = diffY > 0 ? startSquareId + width : startSquareId - width;
+                }
+
+                const isRightEdge = startSquareId % width === width - 1;
+                const isLeftEdge = startSquareId % width === 0;
+                if ((diffX > 0 && isRightEdge) || (diffX < 0 && isLeftEdge)) return;
+                if (targetId < 0 || targetId > 63) return;
+
+                swapCandies(startSquareId, targetId);
+            }
+
+            function swapCandies(id1, id2) {
+                const square1 = squares[id1];
+                const square2 = squares[id2];
+                const candy1 = square1.firstChild;
+                const candy2 = square2.firstChild;
+
+                if (!candy1 || !candy2) return;
+
+                square1.appendChild(candy2);
+                square2.appendChild(candy1);
+
+                if (!checkMatches()) {
+                    setTimeout(() => {
+                        square1.appendChild(candy1);
+                        square2.appendChild(candy2);
+                    }, 200);
+                } else {
+                    runGameLoop();
+                }
+            }
+
+            // --- 3. Recursive Loop ---
+            function runGameLoop() {
+                isProcessing = true;
+                setTimeout(() => {
+                    moveDown();
+                    setTimeout(() => {
+                        if (checkMatches()) {
+                            runGameLoop();
+                        } else {
+                            isProcessing = false;
+                        }
+                    }, 400); 
+                }, 300);
+            }
+
+            // --- 4. Match Logic ---
+            function checkMatches() {
+                let matchFound = false;
+                let candiesToRemove = new Set();
+
+                for (let i = 0; i < 64; i++) {
+                    let rowOfThree = [i, i + 1, i + 2];
+                    let excluded = [6, 7, 14, 15, 22, 23, 30, 31, 38, 39, 46, 47, 54, 55, 62, 63];
+                    if (excluded.includes(i)) continue;
+
+                    if (rowOfThree.every(index => squares[index].firstChild && squares[index].firstChild.classList.contains(getColor(squares[i])))) {
+                        rowOfThree.forEach(index => candiesToRemove.add(squares[index]));
+                        matchFound = true;
+                    }
+                }
+
+                for (let i = 0; i < 47; i++) {
+                    let colOfThree = [i, i + width, i + width * 2];
+                    if (colOfThree.every(index => squares[index].firstChild && squares[index].firstChild.classList.contains(getColor(squares[i])))) {
+                        colOfThree.forEach(index => candiesToRemove.add(squares[index]));
+                        matchFound = true;
+                    }
+                }
+
+                if (matchFound) {
+                    processCrush(Array.from(candiesToRemove));
+                }
+                return matchFound;
+            }
+
+            function getColor(square) {
+                if (!square.firstChild) return null;
+                return candyColors.find(c => square.firstChild.classList.contains(c));
+            }
+
+            function processCrush(squareList) {
+                playCrushSound();
+
+                squareList.forEach(square => {
+                    const candy = square.firstChild;
+                    if (candy && !candy.classList.contains('crush-anim')) {
+                        const rect = square.getBoundingClientRect();
+                        const color = getColor(square);
+                        createParticles(rect.left + rect.width/2, rect.top + rect.height/2, color);
+                        
+                        candy.classList.add('crush-anim');
+                        score += 10;
+                        updateScore();
+
+                        setTimeout(() => {
+                            if (square.contains(candy)) square.removeChild(candy);
+                        }, 280);
+                    }
+                });
+            }
+
+            function updateScore() {
+                scoreDisplay.innerText = score;
+                scoreBoard.classList.add('score-pop');
+                setTimeout(() => scoreBoard.classList.remove('score-pop'), 150);
+
+                if (score >= nextMilestone) {
+                    levelUpSound.currentTime = 0;
+                    levelUpSound.play();
+                    nextMilestone += 500;
+                    scoreBoard.style.borderColor = "#ffd700";
+                    setTimeout(() => scoreBoard.style.borderColor = "rgba(255,255,255,0.2)", 1000);
+                }
+            }
+
+            // --- 5. Particles ---
+            function createParticles(x, y, colorName) {
+                const colorsMap = {
+                    'red': '#ff5e5e', 'yellow': '#ffd700', 'orange': '#d35400',
+                    'purple': '#8e44ad', 'green': '#27ae60', 'blue': '#2980b9'
+                };
+                
+                for(let i=0; i<6; i++) {
+                    const particle = document.createElement('div');
+                    particle.classList.add('particle');
+                    document.body.appendChild(particle);
+
+                    const size = Math.random() * 8 + 4;
+                    particle.style.width = `${size}px`;
+                    particle.style.height = `${size}px`;
+                    particle.style.background = colorsMap[colorName];
+                    particle.style.left = `${x}px`;
+                    particle.style.top = `${y}px`;
+
+                    const tx = (Math.random() - 0.5) * 100;
+                    const ty = (Math.random() - 0.5) * 100;
+                    particle.style.setProperty('--tx', `${tx}px`);
+                    particle.style.setProperty('--ty', `${ty}px`);
+
+                    setTimeout(() => particle.remove(), 600);
+                }
+            }
+
+            // --- 6. Gravity ---
+            function moveDown() {
+                for (let i = 0; i < 55; i++) {
+                    if (squares[i + width].firstChild === null) {
+                        if (squares[i].firstChild) {
+                            squares[i + width].appendChild(squares[i].firstChild);
+                        } 
+                        if (i < 8 && squares[i].firstChild === null) {
+                            const candy = document.createElement('div');
+                            let randomColor = Math.floor(Math.random() * candyColors.length);
+                            candy.classList.add('candy', candyColors[randomColor], 'drop-anim');
+                            squares[i].appendChild(candy);
+                            setTimeout(()=> candy.classList.remove('drop-anim'), 400);
+                        }
+                    }
+                }
+                let hasEmpty = squares.some(s => !s.firstChild);
+                if(hasEmpty) setTimeout(moveDown, 50);
+            }
+
+            window.setInterval(() => {
+                if(!isProcessing) {
+                    if(checkMatches()) runGameLoop();
+                }
+            }, 1000);
+        });
+    </script>
+</body>
+</html>
